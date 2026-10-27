@@ -5,12 +5,14 @@ import Home from './pages/Home.jsx';
 import Simulator from './pages/Simulator.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 
+import StudyGoals from './pages/StudyGoals.jsx';
+
 import Courses from './pages/Courses.jsx';
 import CourseDetails from './pages/CourseDetails.jsx';
 import CourseOverview from './pages/CourseOverview.jsx';
 import Subjects from './pages/Subjects.jsx';
 import Skills from './pages/Skills.jsx';
-
+import SemesterPlanner from './pages/SemesterPlanner.jsx';
 import Login from './pages/Login.jsx';
 import NotFound from './pages/NotFound.jsx';
 
@@ -352,6 +354,16 @@ function App() {
       replace
     />
   }
+/>
+<Route
+  path="/planner"
+  element={<SemesterPlanner />}
+/>
+
+
+<Route
+  path="/study-goals"
+  element={<StudyGoals />}
 />
 
     </Routes>

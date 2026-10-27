@@ -1,506 +1,522 @@
+
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { useMemo, useCallback} from 'react';
 
 import ResultCard from '../components/ResultCard.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
 import Timeline from '../components/Timeline.jsx';
 import Notifications from '../components/Notifications.jsx';
 
+// Reusable card for student summary information
+function SummaryCard({ icon, title, value, description }) {
+  return (
+    <article className="dark-summary-card">
+      <span className="dark-card-icon" aria-hidden="true">
+        {icon}
+      </span>
+
+      <p>{title}</p>
+      <h3>{value}</h3>
+      <small>{description}</small>
+    </article>
+  );
+}
+
+// Reusable card for dashboard sections
+function SectionCard({ title, subtitle, children }) {
+  return (
+    <section className="dark-section-card">
+      <header className="dark-section-header">
+        <h2>{title}</h2>
+        {subtitle && <p>{subtitle}</p>}
+      </header>
+
+      {children}
+    </section>
+  );
+}
+
+
+function getStudyGoals() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem('studyGoals')
+    );
+
+    return {
+      goal: Number(saved?.goal) || 15,
+      completed: Math.max(0, Number(saved?.completed) || 0)
+    };
+  } catch {
+    return { goal: 15, completed: 0 };
+  }
+}
+
+function getSemesterTasks() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem('semesterTasks')
+    );
+
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
 
 function Dashboard({ results, setIsLoggedIn }) {
-  const semesterScore = useMemo(() => {
+  const [advice, setAdvice] = useState('');
+  const [adviceLoading, setAdviceLoading] = useState(true);
+  const [adviceError, setAdviceError] = useState(false);
+  const [refreshAdvice, setRefreshAdvice] = useState(0);
+  
+const [studyGoals, setStudyGoals] = useState(getStudyGoals);
+const [semesterTasks, setSemesterTasks] = useState(getSemesterTasks);
 
-  if (!results) {
-    return 0;
+useEffect(() => {
+  function refreshStudentData() {
+    setStudyGoals(getStudyGoals());
+    setSemesterTasks(getSemesterTasks());
   }
 
-  const attendanceScore =
-    Math.min(results.attendance, 100);
+  // Update when another page announces a change
+  window.addEventListener(
+    'studentDataUpdated',
+    refreshStudentData
+  );
 
-  const studyScore =
-    Math.min(results.studyHours * 10, 100);
+  // Update when localStorage changes in another browser tab
+  window.addEventListener('storage', refreshStudentData);
 
-  const sleepScore =
-    Math.min(results.sleepHours * 12.5, 100);
+  // Read the latest saved data when Dashboard opens
+  refreshStudentData();
 
-  const gpaScore =
-    Math.min(results.gpa * 10, 100);
+  return () => {
+    window.removeEventListener(
+      'studentDataUpdated',
+      refreshStudentData
+    );
+
+    window.removeEventListener('storage', refreshStudentData);
+  };
+}, []);
+
+const goalPercentage = studyGoals.goal > 0
+  ? Math.min(
+      100,
+      Math.round(
+        (studyGoals.completed / studyGoals.goal) * 100
+      )
+    )
+  : 0;
+
+const completedTasks = semesterTasks.filter(
+  (task) => task.completed
+).length;
+
+const pendingTasks = semesterTasks.filter(
+  (task) => !task.completed
+).length;
 
 
-  const score =
-    (
-      attendanceScore +
-      studyScore +
-      sleepScore +
-      gpaScore
-    ) / 4;
+  const studentName =
+    localStorage.getItem('studentName') || 'Student';
 
+  // Calculate a score from the simulation results
+  const semesterScore = useMemo(() => {
+    if (!results) return 0;
 
-  return Math.round(score);
+    const attendanceScore = Math.min(
+      Number(results.attendance) || 0,
+      100
+    );
 
-}, [
-  results
-]);
-const studentName =
-  localStorage.getItem('studentName') || 'Student';
+    const studyScore = Math.min(
+      (Number(results.studyHours) || 0) * 10,
+      100
+    );
 
+    const sleepScore = Math.min(
+      (Number(results.sleepHours) || 0) * 12.5,
+      100
+    );
+
+    const gpaScore = Math.min(
+      (Number(results.gpa) || 0) * 10,
+      100
+    );
+
+    return Math.round(
+      (attendanceScore + studyScore + sleepScore + gpaScore) / 4
+    );
+  }, [results]);
+
+  // API: fetch a motivational tip from Advice Slip
+  useEffect(() => {
+    let isActive = true;
+
+    async function fetchAdvice() {
+      setAdviceLoading(true);
+      setAdviceError(false);
+
+      try {
+        const response = await fetch(
+          'https://api.adviceslip.com/advice',
+          { cache: 'no-store' }
+        );
+
+        if (!response.ok) {
+          throw new Error('Could not load advice');
+        }
+
+        const data = await response.json();
+
+        if (isActive && data.slip && data.slip.advice) {
+          setAdvice(data.slip.advice);
+        } else if (isActive) {
+          throw new Error('Advice was not available');
+        }
+      } catch (error) {
+        if (isActive) {
+          setAdviceError(true);
+        }
+      } finally {
+        if (isActive) {
+          setAdviceLoading(false);
+        }
+      }
+    }
+
+    fetchAdvice();
+
+    return () => {
+      isActive = false;
+    };
+  }, [refreshAdvice]);
+
+  // Log out the current student
   const handleLogout = useCallback(() => {
+    localStorage.removeItem('isLoggedIn');
+    localStorage.removeItem('studentName');
+    localStorage.removeItem('studentEmail');
 
-  localStorage.removeItem('isLoggedIn');
+    setIsLoggedIn(false);
+  }, [setIsLoggedIn]);
 
-  localStorage.removeItem('studentName');
+  const clubs = results?.clubs || [];
 
-  localStorage.removeItem('studentEmail');
-
-  setIsLoggedIn(false);
-
-}, [setIsLoggedIn]);
   return (
+    <main className="dark-dashboard">
+      {/* Navigation */}
+      <nav className="dark-navbar">
+        <Link to="/" className="dark-brand">
+          <span>🎓</span> Student Life
+        </Link>
 
-    <div className="dashboard-page">
-
-      {/* Navbar */}
-
-      <nav className="navbar">
-
-        <div className="logo">
-          🎓 Student Life
-        </div>
-
-        <div className="nav-links">
-
-          <Link to="/">
-            Home
-          </Link>
-
-          <Link to="/simulator">
-            Simulator
-          </Link>
-
-          <Link to="/dashboard">
-            Dashboard
-          </Link>
-
-        </div>
+        
+<section className="dark-nav-links" aria-label="Main navigation">
+  <Link to="/">Home</Link>
+  <Link to="/simulator">Simulator</Link>
+  <Link to="/dashboard" className="active">Dashboard</Link>
+  <Link to="/study-goals">Study Goals</Link>
+  <Link to="/planner">Semester Planner</Link>
+</section>
 
       </nav>
 
-
-      <main className="dashboard-container">
-        <div className="welcome-banner">
-
-  <div>
-
-    <p>
-      Welcome back 👋
-    </p>
-
-    <h1>
-      {studentName}!
-    </h1>
-
-    <span>
-      Here's how your semester is going.
-    </span>
-
-  </div>
-
- <div className="welcome-image-wrapper">
-
-  <img
-    src="/images/dashboard.jpeg"
-    alt="Student achievement"
-    className="dashboard-image"
-  />
-
-</div>
-
-</div>
-
-
-
-        {/* No simulation yet */}
-
-        {!results && (
-
-          <div className="empty-dashboard">
-
-            <div className="empty-icon">
-              🎮
-            </div>
-
+      <section className="dark-dashboard-container">
+        {/* Welcome section */}
+        <header className="dark-welcome">
+          <section>
+            <p className="dark-eyebrow">YOUR PERSONAL SPACE</p>
             <h1>
-              Your Dashboard is Waiting!
+              Welcome back, <span>{studentName}</span>!
             </h1>
+            <p className="dark-welcome-text">
+              Small steps today, big achievements tomorrow.
+            </p>
+          </section>
 
+          <img
+            src="/images/dashboard.jpeg"
+            alt="Student achievement"
+            className="dark-dashboard-image"
+          />
+        </header>
+
+        {/* API motivational tip */}
+        <SectionCard
+          title="✨ Daily Motivation"
+          subtitle="A little inspiration for your student journey"
+        >
+          {adviceLoading ? (
+            <p className="dark-api-message" role="status">
+              Loading your motivational tip...
+            </p>
+          ) : adviceError ? (
+            <section className="dark-api-message">
+              <p>
+                Unable to load a tip right now. Check your internet
+                connection and try again.
+              </p>
+
+              <button
+                className="dark-small-button"
+                onClick={() => setRefreshAdvice((count) => count + 1)}
+              >
+                Try again
+              </button>
+            </section>
+          ) : (
+            <section className="dark-advice-content">
+              <p>“{advice}”</p>
+
+              <button
+                className="dark-small-button"
+                onClick={() => setRefreshAdvice((count) => count + 1)}
+              >
+                Get another tip ↻
+              </button>
+            </section>
+          )}
+        </SectionCard>
+
+        {/* Empty dashboard when simulation has not been completed */}
+        {!results ? (
+          <section className="dark-empty-card">
+            <span className="dark-empty-icon">🚀</span>
+            <h2>Your dashboard is waiting!</h2>
             <p>
-              Complete the semester simulation first
-              to see your personalized dashboard.
+              Complete your student life simulation to see your
+              estimated GPA, stress level, budget, and progress.
             </p>
 
-            <Link
-              to="/simulator"
-              className="dashboard-button"
-            >
+            <Link to="/simulator" className="dark-primary-button">
               Start Simulation →
             </Link>
-
-          </div>
-
-        )}
-
-
-        {/* Dashboard */}
-
-        {results && (
-
+          </section>
+        ) : (
           <>
+            <header className="dark-page-heading">
+              <section>
+                <p className="dark-eyebrow">SEMESTER OVERVIEW</p>
+                <h2>Your Semester Dashboard</h2>
+              </section>
 
-            <div className="dashboard-heading">
-
-              <p className="tagline">
-                📊 Your Semester Dashboard
+              <p className="dark-saved-label">
+                <span aria-hidden="true">●</span> Simulation results loaded
               </p>
+            </header>
 
-              <h1>
-                Welcome to Your Semester!
-              </h1>
-
-              <div className="saved-message">
-  💾 Your simulation is automatically saved.
-</div>
-
-            </div>
-
-
-            {/* Student Summary */}
-
-            <div className="student-summary">
-
-              <div>
-
-                <span>
-                  Course
-                </span>
-
-                <strong>
-                  🎓 {results.course}
-                </strong>
-
-              </div>
-
-
-              <div>
-
-                <span>
-                  Study Time
-                </span>
-
-                <strong>
-                  📚 {results.studyHours} hrs/day
-                </strong>
-
-              </div>
-
-
-              <div>
-
-                <span>
-                  Sleep
-                </span>
-
-                <strong>
-                  😴 {results.sleepHours} hrs/day
-                </strong>
-
-              </div>
-
-
-              <div>
-
-                <span>
-                  Clubs
-                </span>
-
-                <strong>
-                  🏫 {results.clubs.length}
-                </strong>
-
-              </div>
-
-            </div>
-
-
-            {/* Results */}
-
-            <div className="results-grid">
-
-              <ResultCard
+            {/* Summary cards */}
+            <section className="dark-summary-grid" aria-label="Student summary">
+              <SummaryCard
                 icon="🎓"
-                title="GPA Estimate"
-                value={results.gpa}
-                description="Your predicted GPA"
-                type="gpa"
+                title="Course"
+                value={results.course || 'Not selected'}
+                description="Your selected course"
               />
 
-
-              <ResultCard
-                icon="🧠"
-                title="Stress Level"
-                value={`${results.stress}%`}
-                description={results.stressMessage}
-                type="stress"
+              <SummaryCard
+                icon="📚"
+                title="Study Time"
+                value={`${results.studyHours ?? 0} hrs`}
+                description="Study hours per day"
               />
 
-
-              <ResultCard
-                icon="💰"
-                title="Money Left"
-                value={`₹${results.moneyLeft.toLocaleString()}`}
-                description="Estimated remaining money"
-                type="money"
+              <SummaryCard
+                icon="🌙"
+                title="Sleep"
+                value={`${results.sleepHours ?? 0} hrs`}
+                description="Sleep hours per day"
               />
 
-
-              <ResultCard
-                icon="🔥"
-                title="Burnout Risk"
-                value={results.burnoutRisk}
-                description={results.burnoutMessage}
-                type="burnout"
+              <SummaryCard
+                icon="🏆"
+                title="Clubs"
+                value={clubs.length}
+                description="Activities selected"
               />
+            </section>
 
-            </div>
+            {/* Simulation result cards */}
+            <SectionCard
+              title="Your Results"
+              subtitle="Your predicted semester outcomes"
+            >
+              <section className="dark-results-grid">
+                <ResultCard
+                  icon="🎓"
+                  title="GPA Estimate"
+                  value={results.gpa ?? 'N/A'}
+                  description="Your predicted GPA"
+                  type="gpa"
+                />
 
-          <div className="performance-card">
+                <ResultCard
+                  icon="🧠"
+                  title="Stress Level"
+                  value={`${results.stress ?? 0}%`}
+                  description={results.stressMessage || 'Estimated stress'}
+                  type="stress"
+                />
 
-  <div className="performance-header">
+                <ResultCard
+                  icon="💰"
+                  title="Money Left"
+                  value={`₹${(Number(results.moneyLeft) || 0).toLocaleString('en-IN')}`}
+                  description="Estimated remaining money"
+                  type="money"
+                />
 
-    <div>
+                <ResultCard
+                  icon="🔥"
+                  title="Burnout Risk"
+                  value={results.burnoutRisk || 'Unknown'}
+                  description={results.burnoutMessage || 'Keep a healthy balance'}
+                  type="burnout"
+                />
+              </section>
+            </SectionCard>
 
-      <p className="small-label">
-        SEMESTER PERFORMANCE
-      </p>
+            {/* Semester performance */}
+            <SectionCard
+              title="⚡ Semester Performance"
+              subtitle="A combined score based on attendance, study, sleep, and GPA"
+            >
+              <section className="dark-performance">
+                <section className="dark-score-circle">
+                  <strong>{semesterScore}</strong>
+                  <span>OUT OF 100</span>
+                </section>
 
-      <h2>
-        Your Semester Score
-      </h2>
+                <section className="dark-performance-details">
+                  <h3>
+                    {semesterScore >= 80
+                      ? '🏆 Excellent balance!'
+                      : semesterScore >= 60
+                        ? '🎯 Good progress!'
+                        : '💪 Room to improve!'}
+                  </h3>
 
-      <p>
-        Based on your attendance, study,
-        sleep and estimated GPA.
-      </p>
+                  <p>
+                    Keep working towards a healthier and more balanced
+                    semester routine.
+                  </p>
 
-    </div>
+                  <section
+                    className="dark-progress-track"
+                    role="progressbar"
+                    aria-label="Semester performance"
+                    aria-valuenow={semesterScore}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <span style={{ width: `${semesterScore}%` }} />
+                  </section>
 
-    <div className="score-circle">
+                  <p className="dark-progress-caption">
+                    {semesterScore}% performance score
+                  </p>
+                </section>
+              </section>
+            </SectionCard>
 
-      <span>
-        {semesterScore}
-      </span>
-
-      <small>
-        /100
-      </small>
-
-    </div>
-
-  </div>
-
-
-  <div className="performance-progress">
-
-    <div
-      className="performance-progress-fill"
-      style={{
-        width: `${semesterScore}%`
-      }}
-    ></div>
-
-  </div>
-
-
-  <p className="performance-message">
-
-    {semesterScore >= 80
-      ? '🏆 Excellent semester balance!'
-      : semesterScore >= 60
-        ? '🎯 Good progress! Keep improving.'
-        : '💪 You can improve your semester routine.'}
-
-  </p>
-
-<div className="completion-card">
-
-  <div className="completion-icon">
-    🏆
-  </div>
-
-  <div className="completion-content">
-
-    <h2>
-      Semester Journey
-    </h2>
-
-    <p>
-      You're making progress toward completing
-      your semester successfully.
-    </p>
-
-    <div className="completion-bar">
-
-      <div
-        className="completion-fill"
-        style={{
-          width: `${semesterScore}%`
-        }}
-      ></div>
-
-    </div>
-
-    <span>
-      {semesterScore}% Semester Progress
-    </span>
-
-  </div>
-
-</div>
-
-</div>
-            {/* Health */}
-
-            <div className="dashboard-card">
-
-              <h2>
-                💪 Semester Health
-              </h2>
-
-              <p className="card-description">
-                Keep an eye on these important areas
-                throughout your semester.
-              </p>
-
-
+            {/* Health progress */}
+            <SectionCard
+              title="💚 Semester Health"
+              subtitle="Keep an eye on your academic and personal well-being"
+            >
               <ProgressBar
-                value={results.attendance}
+                value={Number(results.attendance) || 0}
                 label="Attendance"
               />
 
-
               <ProgressBar
-                value={results.stress}
+                value={Number(results.stress) || 0}
                 label="Stress Level"
               />
 
-
               <ProgressBar
-                value={results.gpa * 10}
+                value={(Number(results.gpa) || 0) * 10}
                 label="Academic Performance"
               />
-
-            </div>
-
+            </SectionCard>
 
             {/* Clubs */}
-
-            <div className="dashboard-card">
-
-              <h2>
-                🏫 Your Clubs
-              </h2>
-
-              <p className="card-description">
-                Activities you selected for your semester.
-              </p>
-
-
-              {results.clubs.length === 0 && (
-
-                <p className="no-clubs">
-                  You haven't selected any clubs.
-                </p>
-
-              )}
-
-
-              {results.clubs.length > 0 && (
-
-                <div className="selected-clubs">
-
-                  {results.clubs.map((club) => (
-
-                    <div
-                      className="selected-club"
-                      key={club}
-                    >
-                      ⭐ {club}
-                    </div>
-
-                  ))}
-
-                </div>
-
-              )}
-
-            </div>
-
-
-            {/* Attendance Message */}
-
-            <div
-              className={
-                results.attendanceShortage > 0
-                  ? 'dashboard-alert warning'
-                  : 'dashboard-alert success'
-              }
+            <SectionCard
+              title="🌟 Your Clubs"
+              subtitle="Activities you selected for this semester"
             >
-              {/* Smart Notifications */}
+              {clubs.length === 0 ? (
+                <p className="dark-muted">
+                  You haven't selected any clubs yet.
+                </p>
+              ) : (
+                <ul className="dark-club-list">
+                  {clubs.map((club) => (
+                    <li key={club} className="dark-club-item">
+                      ⭐ {club}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
 
-<Notifications
-  results={results}
-/>
+            {/* Attendance alert */}
+            <section
+              className={`dark-attendance-alert ${
+                Number(results.attendanceShortage) > 0
+                  ? 'warning'
+                  : 'success'
+              }`}
+            >
+              <h3>
+                {Number(results.attendanceShortage) > 0
+                  ? '⚠️ Attendance Alert'
+                  : '✅ Attendance Status'}
+              </h3>
 
+              <p>
+                {results.attendanceMessage ||
+                  'Keep checking your attendance regularly.'}
+              </p>
+            </section>
 
-{/* Semester Timeline */}
+            {/* Existing notification and timeline components */}
+            <SectionCard
+              title="🔔 Smart Notifications"
+              subtitle="Helpful reminders based on your simulation"
+            >
+              <Notifications results={results} />
+            </SectionCard>
 
-<Timeline />
-
-              {results.attendanceShortage > 0
-                ? `⚠️ ${results.attendanceMessage}`
-                : `✅ ${results.attendanceMessage}`
-              }
-
-            </div>
-
+            <SectionCard
+              title="🗓️ Semester Journey"
+              subtitle="Your semester milestones"
+            >
+              <Timeline />
+            </SectionCard>
 
             {/* Actions */}
+            <footer className="dark-dashboard-actions">
+              <Link to="/simulator" className="dark-primary-button">
+                ↻ Change Simulation
+              </Link>
 
-            <div className="dashboard-actions">
-
-  <Link
-    to="/simulator"
-    className="secondary-button"
-  >
-    🔄 Change Simulation
-  </Link>
-
-
-  <button
-    onClick={handleLogout}
-    className="logout-button"
-  >
-    🚪 Logout
-  </button>
-
-</div>
-
+              <button
+                onClick={handleLogout}
+                className="dark-logout-button"
+              >
+                Log Out
+              </button>
+            </footer>
           </>
-
         )}
+      </section>
 
-      </main>
-
-    </div>
+    </main>
   );
 }
 
