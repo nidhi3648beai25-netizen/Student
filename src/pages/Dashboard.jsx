@@ -7,14 +7,15 @@ import ProgressBar from '../components/ProgressBar.jsx';
 import Timeline from '../components/Timeline.jsx';
 import Notifications from '../components/Notifications.jsx';
 
-// Reusable card for student summary information
+import { useStudentContext } from '../StudentContext.jsx';
+
+// Reusable summary card
 function SummaryCard({ icon, title, value, description }) {
   return (
     <article className="dark-summary-card">
       <span className="dark-card-icon" aria-hidden="true">
         {icon}
       </span>
-
       <p>{title}</p>
       <h3>{value}</h3>
       <small>{description}</small>
@@ -22,7 +23,7 @@ function SummaryCard({ icon, title, value, description }) {
   );
 }
 
-// Reusable card for dashboard sections
+// Reusable section card
 function SectionCard({ title, subtitle, children }) {
   return (
     <section className="dark-section-card">
@@ -30,18 +31,14 @@ function SectionCard({ title, subtitle, children }) {
         <h2>{title}</h2>
         {subtitle && <p>{subtitle}</p>}
       </header>
-
       {children}
     </section>
   );
 }
 
-
 function getStudyGoals() {
   try {
-    const saved = JSON.parse(
-      localStorage.getItem('studyGoals')
-    );
+    const saved = JSON.parse(localStorage.getItem('studyGoals'));
 
     return {
       goal: Number(saved?.goal) || 15,
@@ -54,76 +51,60 @@ function getStudyGoals() {
 
 function getSemesterTasks() {
   try {
-    const saved = JSON.parse(
-      localStorage.getItem('semesterTasks')
-    );
-
+    const saved = JSON.parse(localStorage.getItem('semesterTasks'));
     return Array.isArray(saved) ? saved : [];
   } catch {
     return [];
   }
 }
 
+function Dashboard({ setIsLoggedIn }) {
+  // Read simulation results from Context API
+  const { results } = useStudentContext();
 
-function Dashboard({ results, setIsLoggedIn }) {
   const [advice, setAdvice] = useState('');
   const [adviceLoading, setAdviceLoading] = useState(true);
   const [adviceError, setAdviceError] = useState(false);
   const [refreshAdvice, setRefreshAdvice] = useState(0);
-  
-const [studyGoals, setStudyGoals] = useState(getStudyGoals);
-const [semesterTasks, setSemesterTasks] = useState(getSemesterTasks);
 
-useEffect(() => {
-  function refreshStudentData() {
-    setStudyGoals(getStudyGoals());
-    setSemesterTasks(getSemesterTasks());
-  }
+  const [studyGoals, setStudyGoals] = useState(getStudyGoals);
+  const [semesterTasks, setSemesterTasks] = useState(getSemesterTasks);
 
-  // Update when another page announces a change
-  window.addEventListener(
-    'studentDataUpdated',
-    refreshStudentData
-  );
+  useEffect(() => {
+    function refreshStudentData() {
+      setStudyGoals(getStudyGoals());
+      setSemesterTasks(getSemesterTasks());
+    }
 
-  // Update when localStorage changes in another browser tab
-  window.addEventListener('storage', refreshStudentData);
+    window.addEventListener('studentDataUpdated', refreshStudentData);
+    window.addEventListener('storage', refreshStudentData);
 
-  // Read the latest saved data when Dashboard opens
-  refreshStudentData();
+    refreshStudentData();
 
-  return () => {
-    window.removeEventListener(
-      'studentDataUpdated',
-      refreshStudentData
-    );
+    return () => {
+      window.removeEventListener('studentDataUpdated', refreshStudentData);
+      window.removeEventListener('storage', refreshStudentData);
+    };
+  }, []);
 
-    window.removeEventListener('storage', refreshStudentData);
-  };
-}, []);
-
-const goalPercentage = studyGoals.goal > 0
-  ? Math.min(
-      100,
-      Math.round(
-        (studyGoals.completed / studyGoals.goal) * 100
+  const goalPercentage = studyGoals.goal > 0
+    ? Math.min(
+        100,
+        Math.round((studyGoals.completed / studyGoals.goal) * 100)
       )
-    )
-  : 0;
+    : 0;
 
-const completedTasks = semesterTasks.filter(
-  (task) => task.completed
-).length;
+  const completedTasks = semesterTasks.filter(
+    (task) => task.completed
+  ).length;
 
-const pendingTasks = semesterTasks.filter(
-  (task) => !task.completed
-).length;
+  const pendingTasks = semesterTasks.filter(
+    (task) => !task.completed
+  ).length;
 
+  const studentName = localStorage.getItem('studentName') || 'Student';
 
-  const studentName =
-    localStorage.getItem('studentName') || 'Student';
-
-  // Calculate a score from the simulation results
+  // Calculate a score using Context API simulation results
   const semesterScore = useMemo(() => {
     if (!results) return 0;
 
@@ -152,7 +133,7 @@ const pendingTasks = semesterTasks.filter(
     );
   }, [results]);
 
-  // API: fetch a motivational tip from Advice Slip
+  // REST API: fetch motivational advice from Advice Slip
   useEffect(() => {
     let isActive = true;
 
@@ -177,7 +158,7 @@ const pendingTasks = semesterTasks.filter(
         } else if (isActive) {
           throw new Error('Advice was not available');
         }
-      } catch (error) {
+      } catch {
         if (isActive) {
           setAdviceError(true);
         }
@@ -214,15 +195,13 @@ const pendingTasks = semesterTasks.filter(
           <span>🎓</span> Student Life
         </Link>
 
-        
-<section className="dark-nav-links" aria-label="Main navigation">
-  <Link to="/">Home</Link>
-  <Link to="/simulator">Simulator</Link>
-  <Link to="/dashboard" className="active">Dashboard</Link>
-  <Link to="/study-goals">Study Goals</Link>
-  <Link to="/planner">Semester Planner</Link>
-</section>
-
+        <section className="dark-nav-links" aria-label="Main navigation">
+          <Link to="/">Home</Link>
+          <Link to="/simulator">Simulator</Link>
+          <Link to="/dashboard" className="active">Dashboard</Link>
+          <Link to="/study-goals">Study Goals</Link>
+          <Link to="/planner">Semester Planner</Link>
+        </section>
       </nav>
 
       <section className="dark-dashboard-container">
@@ -245,7 +224,7 @@ const pendingTasks = semesterTasks.filter(
           />
         </header>
 
-        {/* API motivational tip */}
+        {/* REST API motivational tip */}
         <SectionCard
           title="✨ Daily Motivation"
           subtitle="A little inspiration for your student journey"
@@ -282,7 +261,7 @@ const pendingTasks = semesterTasks.filter(
           )}
         </SectionCard>
 
-        {/* Empty dashboard when simulation has not been completed */}
+        {/* Show this when no simulation has been completed */}
         {!results ? (
           <section className="dark-empty-card">
             <span className="dark-empty-icon">🚀</span>
@@ -484,7 +463,7 @@ const pendingTasks = semesterTasks.filter(
               </p>
             </section>
 
-            {/* Existing notification and timeline components */}
+            {/* Smart notifications */}
             <SectionCard
               title="🔔 Smart Notifications"
               subtitle="Helpful reminders based on your simulation"
@@ -492,11 +471,43 @@ const pendingTasks = semesterTasks.filter(
               <Notifications results={results} />
             </SectionCard>
 
+            {/* Semester timeline */}
             <SectionCard
               title="🗓️ Semester Journey"
               subtitle="Your semester milestones"
             >
               <Timeline />
+            </SectionCard>
+
+            {/* Study goals and tasks summary */}
+            <SectionCard
+              title="🎯 Study Goals Overview"
+              subtitle="Your saved study goals and semester tasks"
+            >
+              <p>
+                Weekly study goal: <strong>{studyGoals.goal} hours</strong>
+              </p>
+
+              <p>
+                Completed study hours: <strong>{studyGoals.completed}</strong>
+              </p>
+
+              <ProgressBar
+                value={goalPercentage}
+                label="Study goal completion"
+              />
+
+              <p>
+                Completed semester tasks: <strong>{completedTasks}</strong>
+              </p>
+
+              <p>
+                Pending semester tasks: <strong>{pendingTasks}</strong>
+              </p>
+
+              <Link to="/study-goals" className="dark-primary-button">
+                View Study Goals →
+              </Link>
             </SectionCard>
 
             {/* Actions */}
@@ -515,7 +526,6 @@ const pendingTasks = semesterTasks.filter(
           </>
         )}
       </section>
-
     </main>
   );
 }
